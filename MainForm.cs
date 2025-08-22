@@ -1,90 +1,102 @@
-﻿using System.Runtime.InteropServices;
+﻿using System;
+using System.Drawing;
+using System.Windows.Forms;
 
 namespace KeepWindowActiveApp
 {
     public partial class MainForm : Form
     {
-        // Bring window to front
-        [DllImport("user32.dll")]
-        private static extern bool SetForegroundWindow(IntPtr hWnd);
-
-        // For rounded corners
-        [DllImport("gdi32.dll", EntryPoint = "CreateRoundRectRgn")]
-        private static extern IntPtr CreateRoundRectRgn(
-            int nLeftRect, int nTopRect, int nRightRect, int nBottomRect,
-            int nWidthEllipse, int nHeightEllipse);
-
-        // For dragging the borderless window
-        [DllImport("user32.dll")]
-        private static extern bool ReleaseCapture();
-        [DllImport("user32.dll")]
-        private static extern IntPtr SendMessage(IntPtr hWnd, int Msg, IntPtr wParam, IntPtr lParam);
-        private const int WM_NCLBUTTONDOWN = 0xA1;
-        private const int HTCAPTION = 0x2;
+        private int remainingSeconds;
 
         public MainForm()
         {
             InitializeComponent();
-
-            // events for dragging from the top panel and title label
-            this.pnlTop.MouseDown += Form_MouseDown;
-            this.lblTitle.MouseDown += Form_MouseDown;
-
-            // if the user resizes (unlikely since borderless), keep rounded corners
-            this.SizeChanged += (s, e) => ApplyRoundedCorners();
-            this.Load += (s, e) => ApplyRoundedCorners();
+            ApplyModernTheme();
         }
 
-        private void ApplyRoundedCorners()
+        private void ApplyModernTheme()
         {
-            // Dispose previous region if any
-            var rgn = CreateRoundRectRgn(0, 0, this.Width, this.Height, 20, 20);
-            this.Region = Region.FromHrgn(rgn);
-        }
+            // Form
+            this.BackColor = Color.FromArgb(32, 32, 32); // Dark gray (modern)
+            this.ForeColor = Color.White;
+            this.Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point);
 
-        private void Form_MouseDown(object sender, MouseEventArgs e)
-        {
-            if (e.Button == MouseButtons.Left)
+            // Label
+            lblMessage.ForeColor = Color.White;
+            lblMessage.Font = new Font("Segoe UI", 12F, FontStyle.Bold);
+
+            // Textboxes
+            foreach (Control ctl in this.Controls)
             {
-                ReleaseCapture();
-                SendMessage(this.Handle, WM_NCLBUTTONDOWN, (IntPtr)HTCAPTION, IntPtr.Zero);
+                if (ctl is TextBox txt)
+                {
+                    txt.BackColor = Color.FromArgb(45, 45, 48); // VS Code style dark
+                    txt.ForeColor = Color.White;
+                    txt.BorderStyle = BorderStyle.FixedSingle;
+                }
             }
+
+            // Buttons
+            StyleButton(btnStart, Color.FromArgb(0, 122, 204));   // Blue
+            StyleButton(btnCancel, Color.FromArgb(204, 0, 0));   // Red
         }
 
-        private async void btnStart_Click(object sender, EventArgs e)
+        private void StyleButton(Button btn, Color backColor)
         {
-            if (!int.TryParse(txtTime.Text.Trim(), out int seconds) || seconds <= 0)
+            btn.FlatStyle = FlatStyle.Flat;
+            btn.FlatAppearance.BorderSize = 0;
+            btn.BackColor = backColor;
+            btn.ForeColor = Color.White;
+            btn.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            btn.Cursor = Cursors.Hand;
+            btn.Padding = new Padding(6);
+            btn.Region = System.Drawing.Region.FromHrgn(
+                CreateRoundRectRgn(0, 0, btn.Width, btn.Height, 10, 10));
+        }
+
+        // Rounded corners support
+        [System.Runtime.InteropServices.DllImport("gdi32.dll", EntryPoint = "CreateRoundRectRgn")]
+        private static extern IntPtr CreateRoundRectRgn(
+            int nLeftRect, int nTopRect, int nRightRect, int nBottomRect,
+            int nWidthEllipse, int nHeightEllipse);
+
+        private void btnStart_Click(object sender, EventArgs e)
+        {
+            int hours = int.TryParse(txtHours.Text, out var h) ? h : 0;
+            int minutes = int.TryParse(txtMinutes.Text, out var m) ? m : 0;
+            int seconds = int.TryParse(txtSeconds.Text, out var s) ? s : 0;
+
+            remainingSeconds = (hours * 3600) + (minutes * 60) + seconds;
+
+            if (remainingSeconds <= 0)
             {
-                MessageBox.Show("Please enter a positive integer for seconds.", "Invalid input",
-                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show("Please enter a valid time!", "Invalid Input", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
 
-            btnStart.Enabled = false;
-            txtTime.Enabled = false;
-            btnStart.Text = "Keeping Active...";
-
-            DateTime endTime = DateTime.Now.AddSeconds(seconds);
-
-            // loop and keep bringing window to foreground until time expires
-            while (DateTime.Now < endTime)
-            {
-                SetForegroundWindow(this.Handle);
-                await Task.Delay(500);
-                Application.DoEvents(); // keep UI responsive
-            }
-
-            btnStart.Enabled = true;
-            txtTime.Enabled = true;
-            btnStart.Text = "▶ Start";
-
-            MessageBox.Show($"Done! Window stayed focused for {seconds} seconds.",
-                "Completed", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            lblMessage.Text = $"⏳ Countdown started: {remainingSeconds} seconds";
+            countdownTimer.Start();
         }
 
-        private void btnClose_Click(object sender, EventArgs e)
+        private void btnCancel_Click(object sender, EventArgs e)
         {
-            this.Close();
+            countdownTimer.Stop();
+            lblMessage.Text = "❌ Countdown cancelled!";
+        }
+
+        private void countdownTimer_Tick(object sender, EventArgs e)
+        {
+            if (remainingSeconds > 0)
+            {
+                remainingSeconds--;
+                TimeSpan ts = TimeSpan.FromSeconds(remainingSeconds);
+                lblMessage.Text = $"⏳ Remaining: {ts.Hours:D2}:{ts.Minutes:D2}:{ts.Seconds:D2}";
+            }
+            else
+            {
+                countdownTimer.Stop();
+                lblMessage.Text = "✅ Countdown finished!";
+            }
         }
     }
 }
